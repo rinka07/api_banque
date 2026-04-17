@@ -9,9 +9,9 @@ import os
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
-    
+
 # --- CONFIGURATION NEON ---
-DATABASE_URL = "postgresql://neondb_owner:npg_9yeuACYm2IVE@ep-wispy-sky-ab3hlsyl.eu-west-2.aws.neon.tech/neondb?sslmode=require"
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 # Création du moteur de connexion
 engine = create_engine(DATABASE_URL)
@@ -75,26 +75,37 @@ def lister_utilisateurs(db: Session = Depends(get_db)):
     utilisateurs = db.query(UtilisateurDB).all()
     return utilisateurs
 
-
-
-
-# 4. Le Contrôleur pour SUPPRIMER un utilisateur par email
-"""
+# 4. Le Contrôleur pour SUPPRIMER un utilisateur
 @app.delete("/utilisateurs/{user_id}")
-def supprimer_utilisateur(user_id: int):
-    if user_id < len(base_de_donnees):
-        utilisateur_supprime = base_de_donnees.pop(user_id)
-        return {"message": f"L'utilisateur {utilisateur_supprime['nom']} a été supprimé"}
+def supprimer_utilisateur(user_id: int, db: Session = Depends(get_db)):
+    # On recherche l'utilisateur par son ID réel dans la table
+    utilisateur = db.query(UtilisateurDB).filter(UtilisateurDB.id == user_id).first()
     
-    return {"erreur": "Utilisateur non trouvé"}
+    if not utilisateur:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+    
+    # Suppression dans la base de données
+    db.delete(utilisateur)
+    db.commit() # Très important pour valider la suppression sur Neon
+    
+    return {"message": f"L'utilisateur {utilisateur.nom} a été supprimé avec succès"}
 
-# 5. Le Contrôleur pour METTRE À JOUR un utilisateur par email
+# 5. Le Contrôleur pour METTRE À JOUR le solde
 @app.put("/utilisateurs/{user_id}")
-def mettre_a_jour_solde(user_id: int, nouveau_solde: float):
-    # On vérifie si l'indice existe dans notre liste
-    if user_id < len(base_de_donnees):
-        base_de_donnees[user_id]["solde"] = nouveau_solde
-        return {"message": "Solde mis à jour", "user": base_de_donnees[user_id]}
+def mettre_a_jour_solde(user_id: int, nouveau_solde: float, db: Session = Depends(get_db)):
+    # Vérification que le solde n'est pas négatif (règle bancaire)
+    if nouveau_solde < 0:
+        raise HTTPException(status_code=400, detail="Le solde ne peut pas être négatif")
+
+    # Recherche de l'utilisateur
+    utilisateur = db.query(UtilisateurDB).filter(UtilisateurDB.id == user_id).first()
     
-    return {"erreur": "Utilisateur non trouvé"}
-"""
+    if not utilisateur:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+    
+    # Mise à jour du champ
+    utilisateur.solde = nouveau_solde
+    db.commit() # On enregistre la modification sur le cloud Neon
+    db.refresh(utilisateur) # On récupère les données à jour
+    
+    return {"message": "Solde mis à jour sur Neon", "user": utilisateur}
