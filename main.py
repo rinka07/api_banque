@@ -94,30 +94,41 @@ def supprimer_utilisateur(user_id: int, db: Session = Depends(get_db)):
 # 5. Le Contrôleur pour METTRE À JOUR le solde
 
 class UtilisateurUpdate(BaseModel):
-    nom: Optional[str] = None
-    email: Optional[str] = None
-    solde: Optional[float] = None
+    # On utilise Optional pour permettre de ne pas envoyer le champ
+    # EmailStr valide automatiquement le format de l'email
+    nom: Optional[str] = Field(None, min_length=2)
+    email: Optional[EmailStr] = None 
+    solde: Optional[float] = Field(None, ge=0) # ge=0 vérifie que le solde est >= 0
 
-@app.put("/utilisateurs/{user_id}")
-def mettre_a_jour_utilisateur(user_id: int, obj_update: UtilisateurUpdate, db: Session = Depends(get_db)):
-    # 1. Recherche de l'utilisateur dans PostgreSQL
+@app.patch("/utilisateurs/{user_id}")
+def modifier_utilisateur_partiel(user_id: int, obj_update: UtilisateurUpdate, db: Session = Depends(get_db)):
+    # 1. Recherche de l'utilisateur
     utilisateur = db.query(UtilisateurDB).filter(UtilisateurDB.id == user_id).first()
     
     if not utilisateur:
         raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
 
-    # 2. Extraction des données envoyées (on ignore ce qui est None)
+    # 2. Conversion en dictionnaire en excluant les champs non envoyés (unset)
+    # C'est cette option qui empêche de tout écraser par None
     donnees_maj = obj_update.dict(exclude_unset=True)
 
-    # 3. Application dynamique des modifications
+    # 3. Vérification si l'email est déjà pris par un autre utilisateur
+    if "email" in donnees_maj:
+        email_existant = db.query(UtilisateurDB).filter(
+            UtilisateurDB.email == donnees_maj["email"], 
+            UtilisateurDB.id != user_id
+        ).first()
+        if email_existant:
+            raise HTTPException(status_code=400, detail="Cet email est déjà utilisé")
+
+    # 4. Application des modifications uniquement pour les champs reçus
     for cle, valeur in donnees_maj.items():
         setattr(utilisateur, cle, valeur)
 
-    # 4. Sauvegarde sur Neon
     db.commit()
     db.refresh(utilisateur)
     
     return {
-        "message": "Informations mises à jour avec succès",
+        "message": "Mise à jour partielle réussie",
         "utilisateur": utilisateur
     }
