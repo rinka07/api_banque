@@ -3,6 +3,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import create_engine, Column, Integer, String, Float
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
+from typing import Optional
 import uvicorn
 import os
 
@@ -91,21 +92,32 @@ def supprimer_utilisateur(user_id: int, db: Session = Depends(get_db)):
     return {"message": f"L'utilisateur {utilisateur.nom} a été supprimé avec succès"}
 
 # 5. Le Contrôleur pour METTRE À JOUR le solde
-@app.put("/utilisateurs/{user_id}")
-def mettre_a_jour_solde(user_id: int, nouveau_solde: float, db: Session = Depends(get_db)):
-    # Vérification que le solde n'est pas négatif (règle bancaire)
-    if nouveau_solde < 0:
-        raise HTTPException(status_code=400, detail="Le solde ne peut pas être négatif")
 
-    # Recherche de l'utilisateur
+class UtilisateurUpdate(BaseModel):
+    nom: Optional[str] = None
+    email: Optional[str] = None
+    solde: Optional[float] = None
+
+@app.put("/utilisateurs/{user_id}")
+def mettre_a_jour_utilisateur(user_id: int, obj_update: UtilisateurUpdate, db: Session = Depends(get_db)):
+    # 1. Recherche de l'utilisateur dans PostgreSQL
     utilisateur = db.query(UtilisateurDB).filter(UtilisateurDB.id == user_id).first()
     
     if not utilisateur:
         raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    # 2. Extraction des données envoyées (on ignore ce qui est None)
+    donnees_maj = obj_update.dict(exclude_unset=True)
+
+    # 3. Application dynamique des modifications
+    for cle, valeur in donnees_maj.items():
+        setattr(utilisateur, cle, valeur)
+
+    # 4. Sauvegarde sur Neon
+    db.commit()
+    db.refresh(utilisateur)
     
-    # Mise à jour du champ
-    utilisateur.solde = nouveau_solde
-    db.commit() # On enregistre la modification sur le cloud Neon
-    db.refresh(utilisateur) # On récupère les données à jour
-    
-    return {"message": "Solde mis à jour sur Neon", "user": utilisateur}
+    return {
+        "message": "Informations mises à jour avec succès",
+        "utilisateur": utilisateur
+    }
