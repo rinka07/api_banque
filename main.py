@@ -3,6 +3,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import create_engine, Column, Integer, String, Float, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
+from sqlalchemy import Enum as SQLEnum
 import random
 from typing import Optional
 import os
@@ -27,11 +28,12 @@ class CompteDB(Base):
     __tablename__ = "comptes"
     id = Column(Integer, primary_key=True, index=True)
     numero_compte = Column(String, unique=True)
-    type = Column(String)
+    # On précise ici aussi que c'est une énumération
+    type = Column(SQLEnum(TypeCompte), default=TypeCompte.COURANT)
     solde = Column(Float, default=0.0)
     user_id = Column(Integer, ForeignKey("utilisateurs.id"))
     proprietaire = relationship("UtilisateurDB", back_populates="comptes")
-
+    
 class TransactionDB(Base):
     __tablename__ = "transactions"
     id = Column(Integer, primary_key=True, index=True)
